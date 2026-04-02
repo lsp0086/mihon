@@ -55,6 +55,10 @@ class StorageManager(
         return baseDir?.createDirectory(AUTOMATIC_BACKUPS_PATH)
     }
 
+    fun getBackupDirectory(filename: String): UniFile?{
+        return  baseDir?.createFile(filename)
+    }
+
     fun getDownloadsDirectory(): UniFile? {
         return baseDir?.createDirectory(DOWNLOADS_PATH)
     }

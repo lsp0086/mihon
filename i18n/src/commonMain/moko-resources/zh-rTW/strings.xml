@@ -10,6 +10,10 @@
     <string name="label_recent_manga">記錄</string>
     <string name="label_recent_updates">更新</string>
     <string name="label_backup">備份與還原</string>
+    <string name="label_webdav">使用Webdav</string>
+    <string name="login_error">登錄失敗</string>
+    <string name="label_webdav_upload">Webdav上传</string>
+    <string name="label_webdav_download">Webdav下载</string>
     <string name="label_migration">遷移</string>
     <string name="label_extensions">擴充套件</string>
     <string name="label_extension_info">擴充套件資訊</string>
@@ -61,7 +65,9 @@
     <string name="action_reset">重設</string>
     <string name="action_undo">復原</string>
     <string name="action_restore">還原</string>
-    <string name="loading">正在載入…</string>
+    <string name="loading">請稍候…</string>
+    <string name="no_data">暫無數據</string>
+    <string name="delete_error">刪除失敗</string>
     <string name="app_not_available">應用程式無法使用</string>
     <string name="pref_category_general">一般</string>
     <string name="pref_category_reader">閱讀</string>

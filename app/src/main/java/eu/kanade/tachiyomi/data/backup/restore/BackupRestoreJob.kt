@@ -18,6 +18,8 @@ import eu.kanade.tachiyomi.util.system.isRunning
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import eu.kanade.tachiyomi.util.system.workManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
@@ -90,6 +92,38 @@ class BackupRestoreJob(private val context: Context, workerParams: WorkerParamet
                 .setInputData(inputData)
                 .build()
             context.workManager.enqueueUniqueWork(TAG, ExistingWorkPolicy.KEEP, request)
+        }
+
+        /**
+         * 直接执行备份恢复逻辑（挂起直到完成）
+         * @param context 上下文
+         * @param uri 本地已下载好的 .tachibk 文件的 Uri
+         * @param options 恢复选项（书库、设置、历史记录等）
+         * @param isSync 是否为同步模式（通常传 false）
+         */
+        suspend fun performSyncRestore(
+            context: Context,
+            uri: Uri,
+            options: RestoreOptions,
+            isSync: Boolean = false
+        ): Boolean {
+            val notifier = BackupNotifier(context)
+            val restorer = BackupRestorer(context, notifier, isSync)
+
+            try {
+                logcat(LogPriority.INFO) { "开始从 URI 恢复备份: $uri" }
+                // 直接调用 BackupRestorer 的 restore 方法
+                restorer.restore(uri, options)
+                return  true
+            } catch (e: Exception) {
+                if (e is CancellationException) {
+                    logcat(LogPriority.WARN) { "备份恢复被取消" }
+                } else {
+                    logcat(LogPriority.ERROR, e) { "备份恢复期间发生错误" }
+                    notifier.showRestoreError(e.message)
+                }
+                return false
+            }
         }
 
         fun stop(context: Context) {

@@ -125,6 +125,25 @@ class BackupCreateJob(private val context: Context, workerParams: WorkerParamete
                 .build()
             context.workManager.enqueueUniqueWork(TAG_MANUAL, ExistingWorkPolicy.KEEP, request)
         }
+
+        // 在 BackupCreateJob.kt 的 companion object 中添加
+        suspend fun runBackupNow(context: Context, uri: Uri?, options: BackupOptions): Boolean {
+            if (uri == null) {
+                return false
+            }
+            // 1. 手动创建 BackupCreator 实例 (参考 doWork 内部逻辑)
+            val creator = BackupCreator(context, isAutoBackup = false)
+
+            return try {
+                // 2. 直接调用挂起函数进行备份
+                // 这会阻塞当前的协程直到文件写入 WebDAV 完成
+                creator.backup(uri, options)
+                true
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e)
+                false
+            }
+        }
     }
 }
 

@@ -7,23 +7,39 @@ import android.net.Uri
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MultiChoiceSegmentedButtonRow
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,47 +52,138 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import com.hippo.unifile.UniFile
+import dev.icerock.moko.resources.StringResource
+import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.data.CreateBackupScreen
 import eu.kanade.presentation.more.settings.screen.data.RestoreBackupScreen
 import eu.kanade.presentation.more.settings.screen.data.StorageInfo
 import eu.kanade.presentation.more.settings.widget.BasePreferenceWidget
 import eu.kanade.presentation.more.settings.widget.PrefsHorizontalPadding
+import eu.kanade.presentation.util.Screen
 import eu.kanade.presentation.util.relativeTimeSpanString
 import eu.kanade.tachiyomi.data.backup.create.BackupCreateJob
+import eu.kanade.tachiyomi.data.backup.create.BackupCreator
+import eu.kanade.tachiyomi.data.backup.create.BackupOptions
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreJob
+import eu.kanade.tachiyomi.data.backup.restore.RestoreOptions
 import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.export.LibraryExporter
 import eu.kanade.tachiyomi.data.export.LibraryExporter.ExportOptions
+import eu.kanade.tachiyomi.source.sourcePreferences
 import eu.kanade.tachiyomi.util.system.DeviceUtil
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
+import okhttp3.Credentials
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.core.common.storage.displayablePath
 import tachiyomi.core.common.util.lang.launchNonCancellable
+import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.backup.service.BackupPreferences
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.GetFavorites
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.domain.storage.service.StoragePreferences
 import tachiyomi.i18n.MR
+import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.TextButton
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.IOException
+import java.io.InputStream
+import java.io.StringReader
+
+fun parseWebDavXml(xml: String): List<String> {
+    val folders = mutableListOf<String>()
+    val factory = XmlPullParserFactory.newInstance()
+    val parser = factory.newPullParser()
+    parser.setInput(StringReader(xml))
+
+    var eventType = parser.eventType
+    while (eventType != XmlPullParser.END_DOCUMENT) {
+        if (eventType == XmlPullParser.START_TAG && parser.name.endsWith("displayname")) {
+            folders.add(parser.nextText())
+        }
+        eventType = parser.next()
+    }
+    return folders
+}
+
+// 建议放在单独的文件或作为单例
+object WebdavHelper {
+    private val client = OkHttpClient()
+
+    suspend fun authAndGetFiles(url: String, user: String, pass: String): String? {
+        // 1. 处理 Basic Auth 认证字符串
+        val credential = Credentials.basic(user, pass)
+
+        // 2. 构建 WebDAV 专用的 PROPFIND 请求
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", credential)
+            // Depth 1 表示获取当前文件夹下的文件列表，0 表示仅检查当前文件夹本身
+            .addHeader("Depth", "1")
+            .method("PROPFIND", null) // WebDAV 必须使用此方法
+            .build()
+
+        // 3. 在 IO 线程执行请求
+        return withContext(Dispatchers.IO) {
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        // 返回的是 XML 格式的文件列表数据
+                        response.body.string()
+                    } else if (response.code == 401) {
+                        throw IOException("认证失败：用户名或密码错误")
+                    } else {
+                        throw IOException("服务器错误：${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                // 打印错误或向上抛出
+                e.printStackTrace()
+                null
+            }
+        }
+    }
+}
 
 object SettingsDataScreen : SearchableSettings {
 
@@ -108,6 +215,7 @@ object SettingsDataScreen : SearchableSettings {
             Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.pref_storage_location_info)),
 
             getBackupAndRestoreGroup(backupPreferences = backupPreferences),
+            getWebGroup(),
             getDataGroup(),
             getExportGroup(),
         )
@@ -175,7 +283,7 @@ object SettingsDataScreen : SearchableSettings {
             onClick = {
                 try {
                     pickStorageLocation.launch(null)
-                } catch (e: ActivityNotFoundException) {
+                } catch (_: ActivityNotFoundException) {
                     context.toast(MR.strings.file_picker_error)
                 }
             },
@@ -287,6 +395,36 @@ object SettingsDataScreen : SearchableSettings {
                         stringResource(MR.strings.last_auto_backup_info, relativeTimeSpanString(lastAutoBackup)),
                 ),
             ),
+        )
+    }
+
+    @Composable
+    private fun getWebGroup(): Preference.PreferenceGroup {
+        val navigator = LocalNavigator.currentOrThrow
+
+        return Preference.PreferenceGroup(
+            title =stringResource(MR.strings.label_webdav),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.CustomPreference(
+                    title = stringResource(MR.strings.label_webdav),
+                ) {
+                    MultiChoiceSegmentedButtonRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(intrinsicSize = IntrinsicSize.Min)
+                            .padding(horizontal = PrefsHorizontalPadding),
+                    ) {
+                        SegmentedButton(
+                            modifier = Modifier.fillMaxHeight(),
+                            checked = false,
+                            onCheckedChange = { navigator.push(WebdavUploadScreen()) },
+                            shape = SegmentedButtonDefaults.itemShape(0, 1),
+                        ) {
+                            Text("Webdav")
+                        }
+                    }
+                }
+            )
         )
     }
 
@@ -476,5 +614,639 @@ object SettingsDataScreen : SearchableSettings {
                 }
             },
         )
+    }
+}
+
+suspend fun createDirectory(baseUrl: String, folderName: String, auth: String): Boolean {
+    val client = OkHttpClient()
+    // 确保 URL 结尾有斜杠，并拼接你的 App 文件夹名
+    val folderUrl = "${baseUrl.removeSuffix("/")}/$folderName/"
+
+    val request = Request.Builder()
+        .url(folderUrl)
+        .addHeader("Authorization", auth)
+        .method("MKCOL", null) // MKCOL 方法不需要 RequestBody
+        .build()
+
+    return withContext(Dispatchers.IO) {
+        client.newCall(request).execute().use { response ->
+            // 201 表示创建成功，405 通常表示已经存在了
+            response.code == 201 || response.code == 405
+        }
+    }
+}
+
+suspend fun uploadBinaryFile(
+    context: Context,
+    folderUrl: String,
+    fileName: String,
+    fileUri: Uri,
+    auth: String
+): Boolean {
+    val client = OkHttpClient()
+    val fileUrl = "${folderUrl.removeSuffix("/")}/$fileName"
+
+    return withContext(Dispatchers.IO) {
+        try {
+            // 1. 从 Uri 读取二进制数据
+            val inputStream = context.contentResolver.openInputStream(fileUri)
+            val bytes = inputStream?.use { it.readBytes() } ?: return@withContext false
+
+            // 2. 创建二进制请求体
+            val body = bytes.toRequestBody("application/octet-stream".toMediaType())
+
+            // 3. 构建 PUT 请求
+            val request = Request.Builder()
+                .url(fileUrl)
+                .addHeader("Authorization", auth)
+                .put(body)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+}
+
+suspend fun deleteWebdavFile(
+    folderUrl: String,
+    fileName: String,
+    auth: String
+): Boolean {
+    return withContext(Dispatchers.IO) {
+        val client = OkHttpClient()
+        // 拼接完整的文件路径 URL
+        val fileUrl = if (folderUrl.endsWith("/")) "$folderUrl$fileName" else "$folderUrl/$fileName"
+
+        val request = Request.Builder()
+            .url(fileUrl)
+            .addHeader("Authorization", auth)
+            .delete() // 使用 DELETE 方法
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                // WebDAV 删除成功通常返回 204 No Content
+                // 如果文件不存在，可能会返回 404，但也算作“已删除”状态
+                response.isSuccessful || response.code == 404
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "WebDAV 删除失败: $fileName" }
+            false
+        }
+    }
+}
+
+suspend fun downloadWebdavFile(
+    folderUrl: String,
+    fileName: String,
+    auth: String
+): InputStream? {
+    return withContext(Dispatchers.IO) {
+        val client = OkHttpClient()
+        val fileUrl = if (folderUrl.endsWith("/")) "$folderUrl$fileName" else "$folderUrl/$fileName"
+
+        val request = Request.Builder()
+            .url(fileUrl)
+            .addHeader("Authorization", auth)
+            .get() // WebDAV 下载即标准的 GET 请求
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                // 注意：调用方负责关闭这个 InputStream
+                response.body.byteStream()
+            } else {
+                response.close()
+                null
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "从 WebDAV 下载失败: $fileName" }
+            null
+        }
+    }
+}
+
+class WebdavUploadScreen: Screen(){
+    @Composable
+    override fun Content() {
+        val context = LocalContext.current
+        val navigator = LocalNavigator.currentOrThrow
+        val webdavData = AndroidPreferenceStore(context, sourcePreferences("webdav_key"))
+        val webdavName = webdavData.getString("user_name", "")
+        val webdavPass = webdavData.getString("user_path", "")
+        val webdavUrl = webdavData.getString("webdav_url", "")
+        val webdavState by webdavUrl.collectAsState()
+        val scope = rememberCoroutineScope()
+        var webdavInfo by remember { mutableStateOf<String?>(null) }
+        var nameList by remember { mutableStateOf<List<String>?>(null) }
+        var hasFolder by remember { mutableStateOf(false) }
+        var needChange by remember { mutableStateOf(false) }
+
+        var waiting by remember { mutableStateOf(false) }
+        if (waiting){
+            LoadingDialog(MR.strings.loading)
+        }
+        Scaffold(
+            topBar = {
+                AppBar(
+                    title = stringResource(MR.strings.label_webdav),
+                    navigateUp = navigator::pop,
+                    scrollBehavior = it,
+                )
+            },
+        ) { contentPadding ->
+            if (webdavState.isEmpty() || needChange) {
+                val list = listOf(MR.strings.webdav_url, MR.strings.username, MR.strings.password)
+                var username by remember { mutableStateOf(webdavName.get()) }
+                var password by remember { mutableStateOf(webdavPass.get()) }
+                var url by remember { mutableStateOf(webdavState) }
+
+                var showError by remember { mutableStateOf(false) }
+
+                val inputWidth = 220.dp
+                LazyColumn(modifier = Modifier
+                    .padding(contentPadding)
+                    .padding(horizontal = 20.dp)) {
+                    list.forEach { item ->
+                        item {
+                            Row(modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = stringResource(item), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.weight(1f))
+                                when (item) {
+                                    MR.strings.password -> {
+                                        var hidePassword by remember { mutableStateOf(true) }
+                                        OutlinedTextField(
+                                            modifier = Modifier
+                                                .width(inputWidth)
+                                                .semantics { contentType = ContentType.Password },
+                                            value = password,
+                                            textStyle = TextStyle(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Normal
+                                            ),
+                                            onValueChange = { password = it },
+                                            placeholder = { Text(text = stringResource(MR.strings.password), fontSize = 13.sp) },
+                                            trailingIcon = {
+                                                IconButton(onClick = { hidePassword = !hidePassword }) {
+                                                    Icon(
+                                                        imageVector = if (hidePassword) {
+                                                            Icons.Filled.Visibility
+                                                        } else {
+                                                            Icons.Filled.VisibilityOff
+                                                        },
+                                                        contentDescription = null,
+                                                    )
+                                                }
+                                            },
+                                            visualTransformation = if (hidePassword) {
+                                                PasswordVisualTransformation()
+                                            } else {
+                                                VisualTransformation.None
+                                            },
+                                            keyboardOptions = KeyboardOptions(
+                                                keyboardType = KeyboardType.Password,
+                                                imeAction = ImeAction.Done,
+                                            ),
+                                            singleLine = true,
+                                            isError = showError && password.isBlank(),
+                                        )
+                                    }
+                                    MR.strings.username -> {
+                                        OutlinedTextField(
+                                            modifier = Modifier
+                                                .width(inputWidth)
+                                                .semantics {
+                                                    contentType = ContentType.Username + ContentType.EmailAddress
+                                                },
+                                            textStyle = TextStyle(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Normal
+                                            ),
+                                            value = username,
+                                            onValueChange = { username = it },
+                                            placeholder = { Text(text = stringResource(MR.strings.username), fontSize = 13.sp) },
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                            singleLine = true,
+                                            isError = showError && username.isBlank(),
+                                        )
+                                    }
+                                    else -> {
+                                        OutlinedTextField(
+                                            modifier = Modifier
+                                                .width(inputWidth)
+                                                .semantics {
+                                                    contentType = ContentType.Username + ContentType.EmailAddress
+                                                },
+                                            value = url,
+                                            textStyle = TextStyle(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Normal
+                                            ),
+                                            onValueChange = { url = it },
+                                            placeholder = { Text(text = "http://example.com/dav", fontSize = 13.sp) },
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                            singleLine = true,
+                                            isError = showError && url.isBlank(),
+                                        )
+                                    }
+                                }
+                            }
+                            Column(modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(RGBA(236, 239, 240, 1f))) { }
+                        }
+                    }
+                    item{
+                        Spacer(modifier = Modifier.height(40.dp))
+                        MultiChoiceSegmentedButtonRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(intrinsicSize = IntrinsicSize.Min)
+                                .padding(horizontal = PrefsHorizontalPadding),
+                        ) {
+                            SegmentedButton(
+                                modifier = Modifier.fillMaxHeight(),
+                                checked = false,
+                                onCheckedChange = {
+                                    if (url.isNotBlank() && username.isNotBlank() && password.isNotBlank()){
+                                        waiting = true
+                                        scope.launch(Dispatchers.IO) {
+                                            try {
+                                                val result = WebdavHelper.authAndGetFiles(url, username, password)
+                                                waiting = false
+                                                if (result == null) {
+                                                    launchUI {
+                                                        context.toast(MR.strings.login_error)
+                                                    }
+                                                }else{
+                                                    webdavInfo = result
+                                                    if (needChange && (webdavState != url || webdavName.get() != username || webdavPass.get() != password)){
+                                                        hasFolder = false
+                                                        nameList = null
+                                                    }
+                                                    needChange = false
+                                                    webdavName.set(username)
+                                                    webdavPass.set(password)
+                                                    webdavUrl.set(url)
+                                                }
+                                            }catch (_: Exception){
+                                                waiting = false
+                                                launchUI {
+                                                    context.toast(MR.strings.login_error)
+                                                }
+                                            }
+                                        }
+                                    }else {
+                                        showError = true
+                                    }
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(0, 1),
+                            ) {
+                                Text(stringResource(MR.strings.login))
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (webdavInfo == null){
+                    waiting = true
+                    LaunchedEffect(Unit) {
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val result =
+                                    WebdavHelper.authAndGetFiles(webdavState, webdavName.get(), webdavPass.get())
+                                waiting = false
+                                if (result == null) {
+                                    launchUI {
+                                        context.toast(MR.strings.login_error)
+                                    }
+                                } else {
+                                    webdavInfo = result
+                                }
+                            } catch (_: Exception) {
+                                waiting = false
+                                launchUI {
+                                    context.toast(MR.strings.login_error)
+                                }
+                            }
+                        }
+                    }
+                    return@Scaffold
+                }
+                if (!waiting) {
+                    val result = webdavInfo ?: ""
+                    if (result.contains("<d:displayname>mihon")) {
+                        hasFolder = true
+                    } else {
+                        waiting = true
+                        LaunchedEffect(Unit) {
+                            val auth = Credentials.basic(webdavName.get(), webdavPass.get())
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val state = createDirectory(webdavState, "mihon", auth)
+                                    waiting = false
+                                    if (state) {
+                                        hasFolder = true
+                                    } else {
+                                        launchUI {
+                                            context.toast(MR.strings.login_error)
+                                        }
+                                    }
+                                } catch (_: Exception) {
+                                    waiting = false
+                                    launchUI {
+                                        context.toast(MR.strings.login_error)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (hasFolder && !waiting){
+                    val subFolder = webdavState.removeSuffix("/") + "/mihon"
+                    if (nameList == null) {
+                        waiting = true
+                        LaunchedEffect(Unit) {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val result =
+                                        WebdavHelper.authAndGetFiles(subFolder, webdavName.get(), webdavPass.get())
+                                    waiting = false
+                                    nameList = if (result == null) {
+                                        listOf()
+                                    }else{
+                                        parseWebDavXml(result).filter {
+                                            it != "mihon"
+                                        }
+                                    }
+                                }catch (_: Throwable){
+                                    waiting = false
+                                    nameList = listOf()
+                                }
+                            }
+                        }
+                        return@Scaffold
+                    }
+                    Column(modifier = Modifier.padding(contentPadding)) {
+                        if (nameList.isNullOrEmpty()){
+                            Column(modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                Text(text = stringResource(MR.strings.no_data), fontSize = 15.sp, color = RGBA(121, 121, 121, 1f))
+                            }
+                            Spacer(modifier = Modifier.weight(1f))
+                        }else{
+                            LazyColumn(modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 20.dp)
+                            ) {
+                                nameList?.forEach {
+                                    item {
+                                        Row(modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(it, modifier = Modifier.weight(1f), fontSize = 13.sp, maxLines = 2)
+                                            // 下载按钮
+                                            IconButton(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .aspectRatio(1f),
+                                                onClick = {
+                                                    waiting = true
+                                                    val auth = Credentials.basic(webdavName.get(), webdavPass.get())
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            val storageManager = Injekt.get<StorageManager>()
+                                                            val backupUriFile = storageManager.getBackupDirectory(it)
+                                                            val backupUri = backupUriFile?.uri
+
+                                                            val byteStream = downloadWebdavFile(subFolder, it, auth)
+
+                                                            if (byteStream != null && backupUri != null) {
+                                                                val writeState = writeStreamToUniFile(context,byteStream, backupUriFile)
+                                                                if (writeState){
+                                                                    val restoreState = BackupRestoreJob.performSyncRestore(context, backupUri, RestoreOptions())
+                                                                    waiting = false
+                                                                    if (restoreState){
+                                                                        launchUI {
+                                                                            context.toast(MR.strings.restore_completed)
+                                                                        }
+                                                                    }else{
+                                                                        launchUI {
+                                                                            context.toast(MR.strings.restoring_backup_error)
+                                                                        }
+                                                                    }
+                                                                }else{
+                                                                    waiting = false
+                                                                    launchUI {
+                                                                        context.toast(MR.strings.restoring_backup_error)
+                                                                    }
+                                                                }
+                                                            }else{
+                                                                launchUI {
+                                                                    context.toast(MR.strings.restoring_backup_error)
+                                                                }
+                                                            }
+                                                        } catch (_: Throwable) {
+                                                            waiting = false
+                                                            launchUI {
+                                                                context.toast(MR.strings.restoring_backup_error)
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Download,
+                                                    contentDescription = "下载文件"
+                                                )
+                                            }
+                                            // 删除按钮
+                                            IconButton(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .aspectRatio(1f),
+                                                onClick = {
+                                                    val auth = Credentials.basic(webdavName.get(), webdavPass.get())
+                                                    waiting = true
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try{
+                                                            val deleteState = deleteWebdavFile(subFolder,it, auth)
+                                                            waiting = false
+                                                            if (deleteState){
+                                                                val list = mutableListOf<String>()
+                                                                list.addAll(nameList ?: listOf())
+                                                                list.remove(it)
+                                                                nameList = list
+                                                            }else{
+                                                                launchUI {
+                                                                    context.toast(MR.strings.delete_error)
+                                                                }
+                                                            }
+                                                        }catch (_: Throwable) {
+                                                            waiting = false
+                                                            launchUI {
+                                                                context.toast(MR.strings.delete_error)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "删除",
+                                                )
+                                            }
+                                        }
+                                        Column(modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(1.dp)
+                                            .background(RGBA(236, 239, 240, 1f))) { }
+                                    }
+                                }
+                            }
+                        }
+                        MultiChoiceSegmentedButtonRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = PrefsHorizontalPadding, vertical = 15.dp),
+                        ) {
+                            SegmentedButton(
+                                modifier = Modifier.height(intrinsicSize = IntrinsicSize.Min),
+                                checked = false,
+                                onCheckedChange = {
+                                    waiting = true
+                                    scope.launch(Dispatchers.IO) {
+                                        try{
+                                            val filename = BackupCreator.getFilename()
+                                            // 参考源码中的 getAutomaticBackupLocation 逻辑
+                                            val storageManager = Injekt.get<StorageManager>()
+                                            val backupUri = storageManager.getBackupDirectory(filename)?.uri
+                                            if (backupUri != null) {
+                                                val state = BackupCreateJob.runBackupNow(context, backupUri, BackupOptions())
+                                                val auth = Credentials.basic(webdavName.get(), webdavPass.get())
+                                                if (state) {
+                                                    val uploadState = uploadBinaryFile(context, subFolder, filename, backupUri, auth)
+                                                    UniFile.fromUri(context, backupUri)?.let{ temp ->
+                                                        if (temp.exists()){
+                                                            temp.delete()
+                                                        }
+                                                    }
+                                                    waiting = false
+                                                    if (uploadState){
+                                                        val mutList = mutableListOf<String>()
+                                                        mutList.addAll(nameList ?: listOf())
+                                                        mutList.add(filename)
+                                                        nameList = mutList
+                                                    }else{
+                                                        launchUI {
+                                                            context.toast(MR.strings.creating_backup_error)
+                                                        }
+                                                    }
+                                                }else{
+                                                    waiting = false
+                                                    launchUI {
+                                                        context.toast(MR.strings.creating_backup_error)
+                                                    }
+                                                }
+                                            }else{
+                                                waiting = false
+                                                launchUI {
+                                                    context.toast(MR.strings.creating_backup_error)
+                                                }
+                                            }
+                                        }catch (_: Throwable){
+                                            waiting = false
+                                            launchUI {
+                                                context.toast(MR.strings.creating_backup_error)
+                                            }
+                                        }
+                                    }
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(0, 1),
+                            ) {
+                                Text(stringResource(MR.strings.label_webdav_upload))
+                            }
+                        }
+                        MultiChoiceSegmentedButtonRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = PrefsHorizontalPadding, vertical = 15.dp),
+                        ) {
+                            SegmentedButton(
+                                modifier = Modifier.height(intrinsicSize = IntrinsicSize.Min),
+                                checked = false,
+                                onCheckedChange = {
+                                    needChange = true
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(0, 1),
+                            ) {
+                                Text(stringResource(MR.strings.label_settings))
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+}
+
+fun RGBA(r: Int, g: Int, b: Int, a: Float = 1f):Color{
+    return Color(r.toFloat() / 255f, g.toFloat() / 255, b.toFloat() / 255, a)
+}
+@Composable
+fun LoadingDialog(
+    text: StringResource
+) {
+    Dialog(
+        onDismissRequest = { }, // 设置为空，防止点击外部或返回键关闭
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator() // 绘制圆形进度条
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = stringResource(text))
+            }
+        }
+    }
+}
+
+suspend fun writeStreamToUniFile(
+    context: Context,
+    inputStream: InputStream,
+    targetFile: UniFile
+): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            // UniFile.openOutputStream() 会处理底层 SAF 的 contentResolver 逻辑
+            targetFile.openOutputStream().use { outputStream ->
+                inputStream.use { input ->
+                    input.copyTo(outputStream)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "写入 UniFile 失败: ${targetFile.uri}" }
+            false
+        }
     }
 }

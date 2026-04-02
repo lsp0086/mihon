@@ -30,6 +30,11 @@
     <string name="label_recent_manga">History</string>
     <string name="label_sources">Sources</string>
     <string name="label_backup">Backup and restore</string>
+    <string name="label_webdav">Backup with webdav</string>
+    <string name="label_webdav_upload">Webdav upload</string>
+    <string name="label_webdav_download">Webdav download</string>
+    <string name="webdav_url">WebdavUrl</string>
+    <string name="login_error">Login error</string>
     <string name="label_data_storage">Data and storage</string>
     <string name="label_stats">Statistics</string>
     <string name="label_migration">Migrate</string>
@@ -171,6 +176,8 @@
 
     <!-- Operations -->
     <string name="loading">Loading…</string>
+    <string name="no_data">Nodata</string>
+    <string name="delete_error">DeleteFail</string>
     <string name="internal_error">InternalError: Check crash logs for further information</string>
 
     <!-- Shortcuts-->

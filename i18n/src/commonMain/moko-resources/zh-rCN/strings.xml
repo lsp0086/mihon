@@ -11,6 +11,10 @@
     <string name="label_recent_manga">历史</string>
     <string name="label_recent_updates">更新</string>
     <string name="label_backup">备份与还原</string>
+    <string name="label_webdav">使用Webdav</string>
+    <string name="login_error">登录失败</string>
+    <string name="label_webdav_upload">Webdav上传</string>
+    <string name="label_webdav_download">Webdav下载</string>
     <string name="label_extensions">插件</string>
     <string name="label_extension_info">插件信息</string>
     <string name="action_settings">设置</string>
@@ -43,6 +47,7 @@
     <string name="action_next_chapter">下一章</string>
     <string name="action_retry">重试</string>
     <string name="action_remove">删除</string>
+    <string name="delete_error">删除失败</string>
     <string name="action_resume">继续</string>
     <string name="action_open_in_browser">在浏览器中打开</string>
     <string name="action_display_mode">显示模式</string>
@@ -61,7 +66,8 @@
     <string name="action_mark_previous_as_read">标记之前章节为已读</string>
     <string name="action_open_log">打开日志</string>
     <string name="action_restore">还原</string>
-    <string name="loading">正在加载…</string>
+    <string name="loading">请稍候…</string>
+    <string name="no_data">暂无数据</string>
     <string name="action_display_download_badge">已下载的章节数</string>
     <string name="app_not_available">应用无法使用</string>
     <string name="pref_category_general">常规</string>
