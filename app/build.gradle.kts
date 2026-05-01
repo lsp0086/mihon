@@ -22,6 +22,14 @@ shortcutHelper.setFilePath("./shortcuts.xml")
 
 android {
     namespace = "eu.kanade.tachiyomi"
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("../keystore/my-debug.jks")
+            storePassword = "123456"
+            keyAlias = "mykey"
+            keyPassword = "123456"
+        }
+    }
 
     defaultConfig {
         applicationId = "app.mihon"
@@ -39,6 +47,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         val debug by getting {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-${getCommitCount()}"
